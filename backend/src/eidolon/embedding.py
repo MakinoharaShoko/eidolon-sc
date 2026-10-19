@@ -1,5 +1,6 @@
-"""Text embeddings for the vector index: Qwen3-Embedding on SiliconFlow, or Gemini
-Embedding on Google's own API, whichever the deployment chose (ADR-0005).
+"""Text embeddings for the vector index: Qwen3-Embedding on SiliconFlow or run on this
+machine (`local_models`), or Gemini Embedding on Google's own API, whichever the
+deployment chose (ADR-0005).
 
 A query holds up a turn, so it is given a few seconds and asked again once if it fails in
 passing (`retry`); documents, embedded where no one waits on them (importing the story,
@@ -17,6 +18,7 @@ import numpy as np
 
 from eidolon.billing import bill
 from eidolon.config import EmbeddingSettings
+from eidolon.local_models import LocalModel, Qwen3Embedding
 from eidolon.retry import TURN_TIMEOUT, ServiceError, answered, retry_once, transient_status
 
 EMBEDDING_TIMEOUT = httpx.Timeout(120, connect=10)
@@ -162,6 +164,36 @@ class SiliconFlowEmbedder:
         return [d["embedding"] for d in data]
 
 
+class LocalEmbedder:
+    """Qwen3-Embedding run on this machine (`local_models`), asked as SiliconFlow's is:
+    the same instruction in front of queries, none in front of documents. The first call
+    loads the model, so a query then may run out of time; documents wait as long as it
+    takes."""
+
+    def __init__(self, model: str, query_timeout: float = TURN_TIMEOUT) -> None:
+        self.model = model
+        self._model = LocalModel(lambda: Qwen3Embedding(model))
+        self._query_timeout = query_timeout
+
+    async def embed_documents(self, documents: Sequence[Document]) -> list[list[float]]:
+        return await self._embed([d.text for d in documents])
+
+    async def embed_query(self, text: str) -> list[float]:
+        return (await self._embed([_QUERY_INSTRUCTION + text], self._query_timeout))[0]
+
+    async def aclose(self) -> None:
+        await self._model.aclose()
+
+    async def _embed(
+        self, texts: Sequence[str], timeout: float | None = None
+    ) -> list[list[float]]:
+        async with answered("本机向量化", timeout, EmbeddingError):
+            try:
+                return await self._model.run(lambda m: m.embed(texts))
+            except Exception as e:  # out of GPU memory, a download cut short
+                raise EmbeddingError(f"本机向量化出错：{e!r}") from e
+
+
 class GeminiEmbedder:
     """Google's native `batchEmbedContents`, where each text is a request item of its own
     (texts sharing one item's `parts` would make one vector). Gemini Embedding 2 takes no
@@ -288,7 +320,9 @@ def open_embedder(
     settings: EmbeddingSettings, client: httpx.AsyncClient | None = None
 ) -> ClosableEmbedder:
     """The embedder of the service the deployment chose, on `client`, else on one of its
-    own."""
+    own; the models run here need none."""
+    if settings.provider == "local":
+        return LocalEmbedder(settings.model)
     if settings.provider == "gemini":
         assert settings.dimensions is not None, "Gemini's settings always carry dimensions"
         return GeminiEmbedder(

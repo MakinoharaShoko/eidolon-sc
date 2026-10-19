@@ -121,8 +121,8 @@ docker compose up --build
 |---|---|
 | 文字对话 | `CHAT_LLM_*` |
 | 语音通话 | `FISH_AUDIO_API_KEY`，加语音识别的 key：`SONIOX_API_KEY`（默认）或阿里云百炼的 `DASHSCOPE_API_KEY` |
-| 剧情库 | 向量化的 key：`SILICONFLOW_API_KEY`（默认）或 `GEMINI_API_KEY` |
-| 检索与记忆 | 向量化的 key、`SILICONFLOW_API_KEY`（重排），加判断模型：`JEV_API_KEY`（默认）、Cloudflare 或阿里云百炼的凭证 |
+| 剧情库 | 向量化的 key：`SILICONFLOW_API_KEY`（默认）或 `GEMINI_API_KEY`；或者在本机跑（`EMBEDDING_PROVIDER=local`，不要 key，要显卡） |
+| 检索与记忆 | 向量化，加重排：`SILICONFLOW_API_KEY`，或者在本机跑（`RERANK_PROVIDER=local`）；再加判断模型：`JEV_API_KEY`（默认）、Cloudflare 或阿里云百炼的凭证 |
 | 立绘与招呼 | `EIDOLON_STAND_ASSETS_URL` 和存放素材的存储桶 |
 
 每项怎么配、配了以后有什么效果，见 **[配置指南](docs/configuration.md)**；所有环境变量的说明见 [`.env.example`](.env.example)。

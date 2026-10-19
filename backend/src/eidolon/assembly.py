@@ -60,7 +60,7 @@ from eidolon.rerank import (
     KNOWN_THRESHOLDS,
     RERANK_TIMEOUT,
     Reranker,
-    SiliconFlowReranker,
+    open_reranker,
     thresholds_for,
 )
 from eidolon.retrieval import Retrieval, open_reference_sources
@@ -252,9 +252,7 @@ def build(
                 r.model, FALLBACK_MODEL, thresholds.references, thresholds.memories,
             )
         if reranker is None:
-            reranker = SiliconFlowReranker(
-                r.api_key, r.model, r.base_url, routes.client("rerank", RERANK_TIMEOUT)
-            )
+            reranker = open_reranker(r, routes.client("rerank", RERANK_TIMEOUT))
             closers.append(reranker.aclose)
     service_status = ServiceStatus(
         activity, config,
@@ -284,8 +282,9 @@ def build(
     else:
         log.info(
             "retrieval and memory are off: they need the embedding service's key"
-            " (SILICONFLOW_API_KEY, or GEMINI_API_KEY with EMBEDDING_PROVIDER=gemini),"
-            " SILICONFLOW_API_KEY for reranking, and the judge model's (JEV_API_KEY, or"
+            " (SILICONFLOW_API_KEY, or GEMINI_API_KEY with EMBEDDING_PROVIDER=gemini; none"
+            " with EMBEDDING_PROVIDER=local), SILICONFLOW_API_KEY for reranking (none with"
+            " RERANK_PROVIDER=local), and the judge model's (JEV_API_KEY, or"
             " CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID with JUDGE_PROVIDER=cloudflare)"
         )
         memories = Memories(settings.database_path, characters, clock)

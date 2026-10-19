@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from eidolon.characters import load_characters
+from eidolon.config import RerankSettings
 from eidolon.corpus import Episode, Line
 from eidolon.rerank import RerankThresholds
 from eidolon.rerank_eval import (
@@ -452,11 +453,11 @@ def test_the_command_prints_the_report_for_the_model_asked_for(
     monkeypatch.setattr("eidolon.embedding.open_embedder", lambda *_: ClosableEmbedder())
     used: list[str] = []
 
-    def reranker(api_key: str, model: str, base_url: str) -> ClosableReranker:
-        used.append(model)
+    def reranker(settings: RerankSettings) -> ClosableReranker:
+        used.append(settings.model)
         return ClosableReranker({"鳩": 0.9})
 
-    monkeypatch.setattr("eidolon.rerank.SiliconFlowReranker", reranker)
+    monkeypatch.setattr("eidolon.rerank.open_reranker", reranker)
     admin = Admin(tmp_path / "eidolon.db", capsys)
     config = tmp_path / "characters" / "characters.toml"
 

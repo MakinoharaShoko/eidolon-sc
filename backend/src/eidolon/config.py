@@ -2,6 +2,7 @@
 
 import base64
 import hmac
+import importlib.util
 import json
 import logging
 import os
@@ -166,6 +167,10 @@ DEFAULT_SILICONFLOW_BASE_URL = "https://api.siliconflow.cn/v1"
 DEFAULT_EMBEDDING_MODEL = "Qwen/Qwen3-Embedding-0.6B"
 DEFAULT_RERANK_MODEL = "Qwen/Qwen3-Reranker-0.6B"
 """On the calibration set it ranks story and character facts better than 4B does."""
+LOCAL_BASE_URL = "http://local"
+"""The address of the models run on this machine (`EMBEDDING_PROVIDER=local`,
+`RERANK_PROVIDER=local`): never reached over the network, it names them `local` in the
+service records, and they are left out of what the proxy reaches."""
 
 DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 DEFAULT_GEMINI_EMBEDDING_MODEL = "gemini-embedding-2"
@@ -687,14 +692,15 @@ class OAuthSettings:
         return cls(_required(f"{provider}_CLIENT_ID"), _required(f"{provider}_CLIENT_SECRET"))
 
 
-EmbeddingProvider = Literal["siliconflow", "gemini"]
+EmbeddingProvider = Literal["siliconflow", "gemini", "local"]
 EMBEDDING_PROVIDERS: tuple[EmbeddingProvider, ...] = get_args(EmbeddingProvider)
 
 
 @dataclass(frozen=True)
 class EmbeddingSettings:
     """The service that builds and searches the vector index, chosen at deploy time
-    (ADR-0005): SiliconFlow's Qwen3-Embedding or Google's Gemini Embedding."""
+    (ADR-0005): SiliconFlow's Qwen3-Embedding, Google's Gemini Embedding, or Qwen3-Embedding
+    run on this machine, which needs no key."""
 
     provider: EmbeddingProvider
     api_key: str
@@ -707,7 +713,7 @@ class EmbeddingSettings:
     def from_env(cls) -> "EmbeddingSettings | None":
         """None if the chosen service's key is not set; a bad choice raises all the same."""
         provider = _embedding_provider()
-        if not os.environ.get(_EMBEDDING_KEYS[provider]):
+        if provider != "local" and not os.environ.get(_EMBEDDING_KEYS[provider]):
             return None
         return cls.required_from_env()
 
@@ -715,8 +721,11 @@ class EmbeddingSettings:
     def required_from_env(cls) -> "EmbeddingSettings":
         """For the commands that cannot do without embedding: a missing key raises."""
         provider = _embedding_provider()
-        api_key = _required(_EMBEDDING_KEYS[provider])
         model = os.environ.get("EMBEDDING_MODEL") or None
+        if provider == "local":
+            _require_local_extra("EMBEDDING_PROVIDER")
+            return cls(provider, "", model or DEFAULT_EMBEDDING_MODEL, LOCAL_BASE_URL)
+        api_key = _required(_EMBEDDING_KEYS[provider])
         if provider == "siliconflow":
             return cls(
                 provider,
@@ -758,10 +767,23 @@ def _embedding_dimensions() -> int:
     return int(value)
 
 
+def _require_local_extra(name: str) -> None:
+    """Stops the start if models are to run on this machine without what runs them."""
+    if importlib.util.find_spec("sentence_transformers") is None:
+        raise RuntimeError(
+            f"{name}=local 要在本机跑模型，先装上 PyTorch 等依赖：在 backend/ 下运行 uv sync --extra local"
+        )
+
+
+RerankProvider = Literal["siliconflow", "local"]
+RERANK_PROVIDERS: tuple[RerankProvider, ...] = get_args(RerankProvider)
+
+
 @dataclass(frozen=True)
 class RerankSettings:
-    """SiliconFlow's Qwen3-Reranker, which reranks what the vector search finds, whichever
-    service embeds. The thresholds, unless set here, are the model's (see `rerank`)."""
+    """Qwen3-Reranker, which reranks what the vector search finds, whichever service
+    embeds: on SiliconFlow, or run on this machine (`RERANK_PROVIDER=local`), which needs
+    no key. The thresholds, unless set here, are the model's (see `rerank`)."""
 
     api_key: str
     model: str = DEFAULT_RERANK_MODEL
@@ -770,19 +792,37 @@ class RerankSettings:
     """Overrides the model's threshold for story passages and character facts."""
     memory_min_relevance: float | None = None
     """Overrides the model's threshold for memories."""
+    provider: RerankProvider = "siliconflow"
 
     @classmethod
     def from_env(cls) -> "RerankSettings | None":
-        """None if SiliconFlow's key is not set."""
-        if not os.environ.get("SILICONFLOW_API_KEY"):
+        """None if SiliconFlow's key is not set and the model is not run here."""
+        provider = _rerank_provider()
+        if provider == "local":
+            _require_local_extra("RERANK_PROVIDER")
+            api_key, base_url = "", LOCAL_BASE_URL
+        elif not os.environ.get("SILICONFLOW_API_KEY"):
             return None
+        else:
+            api_key = _required("SILICONFLOW_API_KEY")
+            base_url = os.environ.get("SILICONFLOW_BASE_URL") or DEFAULT_SILICONFLOW_BASE_URL
         return cls(
-            api_key=_required("SILICONFLOW_API_KEY"),
+            api_key=api_key,
             model=os.environ.get("RERANK_MODEL") or DEFAULT_RERANK_MODEL,
-            base_url=os.environ.get("SILICONFLOW_BASE_URL") or DEFAULT_SILICONFLOW_BASE_URL,
+            base_url=base_url,
             min_relevance=_relevance("RERANK_MIN_RELEVANCE"),
             memory_min_relevance=_relevance("RERANK_MEMORY_MIN_RELEVANCE"),
+            provider=provider,
         )
+
+
+def _rerank_provider() -> RerankProvider:
+    provider = os.environ.get("RERANK_PROVIDER") or "siliconflow"
+    if provider not in RERANK_PROVIDERS:
+        raise RuntimeError(
+            f"环境变量 RERANK_PROVIDER 只能是 {'、'.join(RERANK_PROVIDERS)}，而不是 {provider}"
+        )
+    return provider  # pyright: ignore[reportReturnType]  # checked above
 
 
 def _relevance(name: str) -> float | None:

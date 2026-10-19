@@ -266,12 +266,25 @@ docker compose exec backend eidolon story sync
 
 ## 向量化服务
 
-剧情库、角色资料、作品资料和记忆共用一个向量化服务，部署时用 `EMBEDDING_PROVIDER` 二选一（[ADR-0005](adr/0005-embedding-provider-chosen-at-deploy.md)）。重排不跟着换，始终用硅基流动。
+剧情库、角色资料、作品资料和记忆共用一个向量化服务，部署时用 `EMBEDDING_PROVIDER` 三选一（[ADR-0005](adr/0005-embedding-provider-chosen-at-deploy.md)）。重排单独用 `RERANK_PROVIDER` 选：硅基流动（默认），或者在本机跑。
 
 | `EMBEDDING_PROVIDER` | 服务 | 需要的 key | 默认模型 |
 |---|---|---|---|
 | `siliconflow`（默认） | 硅基流动 | `SILICONFLOW_API_KEY` | `Qwen/Qwen3-Embedding-0.6B` |
-| `gemini` | Google Gemini API | `GEMINI_API_KEY`（重排仍需 `SILICONFLOW_API_KEY`） | `gemini-embedding-2`，维度 `EMBEDDING_DIMENSIONS`（默认 1536，128–3072） |
+| `gemini` | Google Gemini API | `GEMINI_API_KEY`（重排仍需 `SILICONFLOW_API_KEY`，或在本机跑） | `gemini-embedding-2`，维度 `EMBEDDING_DIMENSIONS`（默认 1536，128–3072） |
+| `local` | 在本机跑，不经过网络 | 不需要 | `Qwen/Qwen3-Embedding-0.6B` |
+
+| `RERANK_PROVIDER` | 服务 | 需要的 key | 默认模型 |
+|---|---|---|---|
+| `siliconflow`（默认） | 硅基流动 | `SILICONFLOW_API_KEY` | `Qwen/Qwen3-Reranker-0.6B` |
+| `local` | 在本机跑，不经过网络 | 不需要 | `Qwen/Qwen3-Reranker-0.6B` |
+
+> [!NOTE]
+> **在本机跑**用的是和硅基流动同样的开源模型，所以重排的阈值照样适用，硅基流动上算出的向量也不用重算。适合自己在一台带显卡的电脑上用，不适合放在没有显卡的服务器上：
+>
+> - 先在 `backend/` 下运行 `uv sync --extra local` 装上 PyTorch 等依赖（Windows 和 Linux 装 CUDA 版，几 GB）。没装就选了 `local`，后端拒绝启动并说明怎么装。Docker 镜像里不带这些依赖。
+> - 模型第一次用到时从 Hugging Face 下载（两个各约 1.2 GB），之后从本机缓存加载，加载完一直留在显存里，两个合计约 3–4 GB。没有显卡时用 CPU 跑，对话中的重排可能超过 3 秒的时限，退回不重排的结果。
+> - 后端刚启动、模型还没加载完时，对话里的检索会超时，照常退回；导入剧情库这类不赶时间的活会等它加载完。
 
 > [!WARNING]
 > 选 Gemini 时要注意两点：

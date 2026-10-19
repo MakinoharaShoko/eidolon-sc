@@ -605,7 +605,9 @@ class _Rerank(_Item):
     name = RERANK
     fields = ("references", "memories")
     stored = (FOR_MODEL,)
-    unavailable_reason = ".env 里没有配置重排（SILICONFLOW_API_KEY），检索和记忆在启动时就关掉了"
+    unavailable_reason = (
+        ".env 里没有配置重排（SILICONFLOW_API_KEY，或 RERANK_PROVIDER=local），检索和记忆在启动时就关掉了"
+    )
 
     def available(self) -> bool:
         return self.c.settings.rerank is not None
@@ -1346,10 +1348,11 @@ class LiveConfig:
             targets["judge"] = CLOUDFLARE_API_URL
         elif judge is not None:
             targets["judge"] = judge.base_url
-        if self.settings.embedding is not None:
-            targets["embedding"] = self.settings.embedding.base_url
-        if self.settings.rerank is not None:
-            targets["rerank"] = self.settings.rerank.base_url
+        # The models run on this machine are reached over no network.
+        if (embedding := self.settings.embedding) is not None and embedding.provider != "local":
+            targets["embedding"] = embedding.base_url
+        if (rerank := self.settings.rerank) is not None and rerank.provider != "local":
+            targets["rerank"] = rerank.base_url
         if self.effective(TTS)["api_key"]:
             targets["tts"] = PROVIDER_URLS["tts"]
         if (key := self.stt_key) is not None:

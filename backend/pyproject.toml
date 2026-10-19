@@ -18,6 +18,13 @@ dependencies = [
     "uvicorn[standard]>=0.54.0",
 ]
 
+[project.optional-dependencies]
+# 在本机跑向量化和重排（EMBEDDING_PROVIDER=local、RERANK_PROVIDER=local）：uv sync --extra local
+local = [
+    "sentence-transformers>=5.1.0",
+    "torch>=2.8.0",
+]
+
 [project.scripts]
 eidolon = "eidolon.__main__:main"
 
@@ -34,6 +41,15 @@ dev = [
     "pytest-timeout>=2.4.0",
     "ruff>=0.16.10",
 ]
+
+# Windows 和 Linux 上从 PyTorch 自己的源装 CUDA 版（PyPI 上 Windows 的 torch 只有 CPU 版）；macOS 照常从 PyPI 装
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu128", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

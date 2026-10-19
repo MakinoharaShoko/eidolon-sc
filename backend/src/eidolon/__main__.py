@@ -732,7 +732,7 @@ async def _eval_rerank(args: argparse.Namespace) -> int:
     from eidolon.characters import load_characters
     from eidolon.config import EmbeddingSettings, RerankSettings
     from eidolon.embedding import EmbeddingError, open_embedder
-    from eidolon.rerank import RerankError, SiliconFlowReranker, thresholds_for
+    from eidolon.rerank import RerankError, open_reranker, thresholds_for
     from eidolon.rerank_eval import CalibrationError, evaluate, load_calibration, report
     from eidolon.retrieval import open_reference_sources
     from eidolon.world import load_world, world_path
@@ -745,7 +745,7 @@ async def _eval_rerank(args: argparse.Namespace) -> int:
         embedding = EmbeddingSettings.required_from_env()
         rerank = RerankSettings.from_env()
         if rerank is None:
-            raise RuntimeError("环境变量 SILICONFLOW_API_KEY 未设置（重排需要）")
+            raise RuntimeError("重排没有配置：设置 SILICONFLOW_API_KEY，或 RERANK_PROVIDER=local")
     except RuntimeError as e:
         print(e, file=sys.stderr)
         return 1
@@ -755,7 +755,7 @@ async def _eval_rerank(args: argparse.Namespace) -> int:
     warnings.setFormatter(logging.Formatter("注意：%(message)s"))
     logging.getLogger("eidolon.retrieval").addHandler(warnings)
     embedder = open_embedder(embedding)
-    reranker = SiliconFlowReranker(rerank.api_key, rerank.model, rerank.base_url)
+    reranker = open_reranker(rerank)
     sources = open_reference_sources(
         args.db or database_path_from_env(), embedder, characters.values(), world
     )
@@ -848,7 +848,7 @@ async def _eval_memory(args: argparse.Namespace) -> int:
         report,
         summarize,
     )
-    from eidolon.rerank import SiliconFlowReranker, thresholds_for
+    from eidolon.rerank import open_reranker, thresholds_for
 
     try:
         characters = load_characters(args.characters or characters_path_from_env())
@@ -861,7 +861,7 @@ async def _eval_memory(args: argparse.Namespace) -> int:
         embedding = EmbeddingSettings.required_from_env()
         rerank = RerankSettings.from_env()
         if rerank is None:
-            raise RuntimeError("环境变量 SILICONFLOW_API_KEY 未设置（重排需要）")
+            raise RuntimeError("重排没有配置：设置 SILICONFLOW_API_KEY，或 RERANK_PROVIDER=local")
         judge = judge_from_env()
         if judge is None:
             raise RuntimeError("环境变量 JEV_API_KEY 未设置（判断模型需要）")
@@ -874,7 +874,7 @@ async def _eval_memory(args: argparse.Namespace) -> int:
     warn_if_uncalibrated(judge.model)
     llm = open_llm(background)
     embedder = open_embedder(embedding)
-    reranker = SiliconFlowReranker(rerank.api_key, rerank.model, rerank.base_url)
+    reranker = open_reranker(rerank)
     judge_model = open_judge(judge)
     services = MemoryServices(
         background_llm=llm,

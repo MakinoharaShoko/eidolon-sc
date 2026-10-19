@@ -1,4 +1,5 @@
-"""Reranking retrieved text against the query: Qwen3-Reranker on SiliconFlow.
+"""Reranking retrieved text against the query: Qwen3-Reranker on SiliconFlow, or run on
+this machine (`local_models`).
 
 What counts as relevant enough depends on the model, so each model the project has
 calibrated (`eidolon eval rerank`) has thresholds of its own.
@@ -14,6 +15,7 @@ import httpx
 
 from eidolon.billing import bill
 from eidolon.config import DEFAULT_RERANK_MODEL, RerankSettings
+from eidolon.local_models import LocalModel, Qwen3Reranker
 from eidolon.retry import TURN_TIMEOUT, ServiceError, answered, retry_once, transient_status
 
 RERANK_TIMEOUT = httpx.Timeout(30, connect=10)
@@ -141,3 +143,36 @@ class SiliconFlowReranker:
 
     async def aclose(self) -> None:
         await self._client.aclose()
+
+
+class LocalReranker:
+    """Qwen3-Reranker run on this machine (`local_models`). The first call loads the model,
+    so it may run out of time; reranking then falls back as for any failure."""
+
+    def __init__(self, model: str, timeout: float = TURN_TIMEOUT) -> None:
+        self.model = model
+        self._model = LocalModel(lambda: Qwen3Reranker(model))
+        self._timeout = timeout
+
+    async def rerank(
+        self, query: str, documents: Sequence[str], top_n: int
+    ) -> list[tuple[int, float]]:
+        async with answered("本机重排", self._timeout, RerankError):
+            try:
+                scores = await self._model.run(lambda m: m.score(query, documents))
+            except Exception as e:  # out of GPU memory, a download cut short
+                raise RerankError(f"本机重排出错：{e!r}") from e
+        return sorted(enumerate(scores), key=lambda ranked: -ranked[1])[:top_n]
+
+    async def aclose(self) -> None:
+        await self._model.aclose()
+
+
+def open_reranker(
+    settings: RerankSettings, client: httpx.AsyncClient | None = None
+) -> SiliconFlowReranker | LocalReranker:
+    """The reranker `settings` describe, SiliconFlow's on `client`, else on one of its own;
+    the model run here needs none."""
+    if settings.provider == "local":
+        return LocalReranker(settings.model)
+    return SiliconFlowReranker(settings.api_key, settings.model, settings.base_url, client)

@@ -1,21 +1,24 @@
 """Choosing the embedding service at deploy time (ADR-0005): SiliconFlow's Qwen3-Embedding
-by default, or Google's Gemini Embedding 2; reranking stays on SiliconFlow either way."""
+by default, Google's Gemini Embedding 2, or Qwen3-Embedding run on this machine; reranking
+on SiliconFlow, or run on this machine too."""
 
+import importlib.util
 import logging
 from pathlib import Path
 
 import pytest
 
 from eidolon.config import EmbeddingSettings, LLMSettings, RerankSettings, Settings
-from eidolon.embedding import GeminiEmbedder, SiliconFlowEmbedder, open_embedder
+from eidolon.embedding import GeminiEmbedder, LocalEmbedder, SiliconFlowEmbedder, open_embedder
+from eidolon.rerank import LocalReranker, open_reranker
 from tests.conftest import Admin, CharacterConfig
 from tests.fakes import FakeBackgroundLLM, FakeJudge, FakeLLM, FakeSpeech, build_faked
 
 NAMES = (
     "EMBEDDING_PROVIDER", "EMBEDDING_MODEL", "EMBEDDING_DIMENSIONS", "GEMINI_API_KEY",
-    "GEMINI_BASE_URL", "SILICONFLOW_API_KEY", "SILICONFLOW_BASE_URL", "RERANK_MODEL",
-    "RERANK_MIN_RELEVANCE", "RERANK_MEMORY_MIN_RELEVANCE", "AI_GATEWAY_API_KEY", "JEV_API_KEY",
-    "JEV_MODEL", "JUDGE_PROVIDER",
+    "GEMINI_BASE_URL", "SILICONFLOW_API_KEY", "SILICONFLOW_BASE_URL", "RERANK_PROVIDER",
+    "RERANK_MODEL", "RERANK_MIN_RELEVANCE", "RERANK_MEMORY_MIN_RELEVANCE", "AI_GATEWAY_API_KEY",
+    "JEV_API_KEY", "JEV_MODEL", "JUDGE_PROVIDER",
 )
 
 
@@ -61,6 +64,36 @@ def test_gemini_embeds_with_its_own_key_and_dimensions(monkeypatch: pytest.Monke
     assert embedder.model == "gemini-embedding-2@1536"
 
 
+def test_models_run_here_need_no_key(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "local")
+    monkeypatch.setenv("RERANK_PROVIDER", "local")
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: object())  # the extra is in
+
+    settings = Settings.from_env()
+
+    assert settings.embedding == EmbeddingSettings(
+        "local", "", "Qwen/Qwen3-Embedding-0.6B", "http://local"
+    )
+    assert settings.rerank == RerankSettings("", base_url="http://local", provider="local")
+    assert settings.embedding is not None and settings.rerank is not None
+    embedder = open_embedder(settings.embedding)
+    reranker = open_reranker(settings.rerank)
+    assert isinstance(embedder, LocalEmbedder) and isinstance(reranker, LocalReranker)
+    # The same model names as SiliconFlow's: its vectors and the reranker's thresholds hold.
+    assert (embedder.model, reranker.model) == ("Qwen/Qwen3-Embedding-0.6B", "Qwen/Qwen3-Reranker-0.6B")
+
+
+@pytest.mark.parametrize("name", ["EMBEDDING_PROVIDER", "RERANK_PROVIDER"])
+def test_models_run_here_without_the_extra_stop_the_start(
+    monkeypatch: pytest.MonkeyPatch, name: str
+):
+    monkeypatch.setenv(name, "local")
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
+
+    with pytest.raises(RuntimeError, match="uv sync --extra local"):
+        Settings.from_env()
+
+
 def test_the_model_and_dimensions_can_be_chosen(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("EMBEDDING_PROVIDER", "gemini")
     monkeypatch.setenv("GEMINI_API_KEY", "gm-key")
@@ -79,6 +112,7 @@ def test_the_model_and_dimensions_can_be_chosen(monkeypatch: pytest.MonkeyPatch)
     "name, value, complaint",
     [
         ("EMBEDDING_PROVIDER", "openai", "EMBEDDING_PROVIDER"),
+        ("RERANK_PROVIDER", "cohere", "RERANK_PROVIDER"),
         ("EMBEDDING_DIMENSIONS", "abc", "EMBEDDING_DIMENSIONS"),
         ("EMBEDDING_DIMENSIONS", "127", "128"),
         ("EMBEDDING_DIMENSIONS", "3073", "3072"),

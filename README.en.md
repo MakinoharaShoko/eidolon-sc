@@ -121,8 +121,8 @@ With only the chat model set, you can chat by text. Add other services' keys as 
 |---|---|
 | Text chat | `CHAT_LLM_*` |
 | Voice calls | `FISH_AUDIO_API_KEY`, plus a speech recognition key: `SONIOX_API_KEY` (default) or Alibaba Cloud Model Studio's `DASHSCOPE_API_KEY` |
-| Story corpus | An embedding key: `SILICONFLOW_API_KEY` (default) or `GEMINI_API_KEY` |
-| Retrieval and memory | An embedding key, `SILICONFLOW_API_KEY` (reranking), plus a judge: `JEV_API_KEY` (default), or Cloudflare or Alibaba Cloud Model Studio credentials |
+| Story corpus | An embedding key: `SILICONFLOW_API_KEY` (default) or `GEMINI_API_KEY`; or run it on your own machine (`EMBEDDING_PROVIDER=local`, no key, wants a GPU) |
+| Retrieval and memory | Embedding, plus reranking: `SILICONFLOW_API_KEY`, or run on your own machine (`RERANK_PROVIDER=local`); plus a judge: `JEV_API_KEY` (default), or Cloudflare or Alibaba Cloud Model Studio credentials |
 | Stands and greetings | `EIDOLON_STAND_ASSETS_URL` and a bucket holding the assets |
 
 How to configure each one and what it does is in the **[Configuration guide](docs/configuration.en.md)**. Every environment variable is documented in [`.env.example`](.env.example).
